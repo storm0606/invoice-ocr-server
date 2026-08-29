@@ -1,4 +1,4 @@
-"""OCR Server 配置 - PP-OCRv6_medium"""
+"""OCR Server 配置"""
 
 import os
 
@@ -8,21 +8,17 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 # 模型目录
 MODELS_DIR = os.path.join(PROJECT_ROOT, "models")
 
-# PP-OCRv6_medium ONNX 模型路径
-# 下载脚本: python tools/download_models.py
-DET_MODEL_DIR = os.path.join(MODELS_DIR, "det")          # ch_PP-OCRv6_det
-REC_MODEL_DIR = os.path.join(MODELS_DIR, "rec_medium")    # ch_PP-OCRv6_rec_medium
-CLS_MODEL_DIR = None                                      # 发票不需要方向分类
+# ---- 默认行为: 让 PaddleOCR 自动下载 ONNX 模型 ----
+# PaddleOCR 在 use_onnx=True 模式下会自动下载 PP-OCRv4 的 ONNX 模型
+DET_MODEL_DIR = None
+REC_MODEL_DIR = None
+CLS_MODEL_DIR = None          # 发票不需要方向分类
 
-# ---- PP-OCRv6_medium 模型下载地址 ----
-DET_MODEL_URL = (
-    "https://paddleocr.bj.bcebos.com/PP-OCRv6/"
-    "ch_PP-OCRv6_det_models.onnx"
-)
-REC_MODEL_URL = (
-    "https://paddleocr.bj.bcebos.com/PP-OCRv6/"
-    "ch_PP-OCRv6_rec_medium.onnx"
-)
+# ---- 如果要用 PP-OCRv6_medium 模型，取消下面注释并设回 None ----
+# 下载方式: 从 Hugging Face 下载 PP-OCRv6_rec_medium.onnx
+# cnocr: https://huggingface.co/breezedeus/cnocr-ppocr-multi_PP-OCRv6_medium
+# DET_MODEL_DIR = os.path.join(MODELS_DIR, "det")
+# REC_MODEL_DIR = os.path.join(MODELS_DIR, "rec_medium")
 
 # PaddleOCR 参数
 USE_ONNX = True              # ARM 服务器必须用 ONNX 模式
