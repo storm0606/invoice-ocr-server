@@ -91,7 +91,7 @@ def parse_chinese_amount(text: str) -> Optional[int]:
 
 
 def extract_invoice_numbers(text: str) -> list[str]:
-    return re.findall(r'\b(\d{8})\b', text)
+    return re.findall(r'(?<!\d)(\d{8})(?!\d)', text)
 
 
 def extract_invoice_codes(regions: list[OCRTextRegion]) -> list[tuple[str, int, float, float]]:
