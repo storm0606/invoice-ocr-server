@@ -1,0 +1,15 @@
+*.pyc
+__pycache__/
+*.egg-info/
+.env
+venv/
+.venv/
+models/rec/
+models/rec_medium/
+models/det/
+*.onnx
+*.jpg
+*.jpeg
+*.png
+.DS_Store
+__pycache__/

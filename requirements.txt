@@ -1,0 +1,19 @@
+# ==================== OCR Server ====================
+# For Oracle ARM server - use onnxruntime for ARM64 compatibility
+# No GPU needed, no PaddlePaddle framework required
+
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+Pillow>=10.0.0
+
+# ONNX Runtime (ARM64 compatible)
+# pip install onnxruntime-silicon for Ampere Altra optimization
+onnxruntime>=1.17.0
+
+# paddleocr in ONNX mode (no PaddlePaddle framework needed)
+paddleocr>=2.7.0
+
+# Utility
+opencv-python-headless>=4.8.0
+numpy>=1.24.0
