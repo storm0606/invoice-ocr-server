@@ -31,7 +31,7 @@ logger = logging.getLogger("ocr-server")
 app = FastAPI(
     title="发票 OCR 识别服务",
     description="接收手机上传的发票照片，使用 PaddleOCR 识别并返回结构化发票信息",
-    version="1.0.0",
+    version="2.0.0",
 )
 
 app.add_middleware(
@@ -43,7 +43,8 @@ app.add_middleware(
 
 ocr_engine = OCREngine()
 
-MAX_IMAGE_DIM = 2000  # 服务端图片最大边长
+# ARM 服务器性能有限，限制图片尺寸以加快推理
+MAX_IMAGE_DIM = 1200
 
 
 def resize_if_needed(pil_image: Image.Image, max_dim: int = MAX_IMAGE_DIM) -> Image.Image:
@@ -105,7 +106,7 @@ async def recognize(file: UploadFile = File(...)):
         if pil_image.mode != "RGB":
             pil_image = pil_image.convert("RGB")
         pil_image = resize_if_needed(pil_image)
-        # RGB → BGR for PaddleX
+        # RGB -> BGR for PaddleX
         img_array = np.array(pil_image)[:, :, ::-1]
     except Exception as e:
         logger.error(f"图片解码失败: {e}")
