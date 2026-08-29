@@ -106,9 +106,6 @@ class OCREngine:
 
             # 打印所有文本区域（调试用）
             logger.info(f"OCR 文本区域详情 ({len(parsed)}):")
-            for p in parsed:
-                logger.info(f"  [{p['confidence']:.3f}] {p['text']}  "
-                           f"box=({p['box'][0][0]},{p['box'][0][1]})")
 
         logger.info(f"OCR: {len(parsed)} text regions in {elapsed:.2f}s")
         return parsed
