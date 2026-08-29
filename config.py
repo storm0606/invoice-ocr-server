@@ -1,18 +1,28 @@
-"""OCR Server 配置"""
+"""OCR Server 配置 - PP-OCRv6_medium"""
 
 import os
 
 # 项目根目录
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 
-# 模型目录（paddleocr 会自动下载，也可以提前下载放到这里）
+# 模型目录
 MODELS_DIR = os.path.join(PROJECT_ROOT, "models")
 
-# 如果使用 paddleocr 内置模型，设置为 None
-# 如果使用自己的 ONNX 模型，设置对应目录
-DET_MODEL_DIR = None      # 例如: os.path.join(MODELS_DIR, "det")
-REC_MODEL_DIR = None      # 例如: os.path.join(MODELS_DIR, "rec_medium")
-CLS_MODEL_DIR = None      # 方向分类模型（发票不需要）
+# PP-OCRv6_medium ONNX 模型路径
+# 下载脚本: python tools/download_models.py
+DET_MODEL_DIR = os.path.join(MODELS_DIR, "det")          # ch_PP-OCRv6_det
+REC_MODEL_DIR = os.path.join(MODELS_DIR, "rec_medium")    # ch_PP-OCRv6_rec_medium
+CLS_MODEL_DIR = None                                      # 发票不需要方向分类
+
+# ---- PP-OCRv6_medium 模型下载地址 ----
+DET_MODEL_URL = (
+    "https://paddleocr.bj.bcebos.com/PP-OCRv6/"
+    "ch_PP-OCRv6_det_models.onnx"
+)
+REC_MODEL_URL = (
+    "https://paddleocr.bj.bcebos.com/PP-OCRv6/"
+    "ch_PP-OCRv6_rec_medium.onnx"
+)
 
 # PaddleOCR 参数
 USE_ONNX = True              # ARM 服务器必须用 ONNX 模式
