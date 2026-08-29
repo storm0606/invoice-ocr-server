@@ -32,8 +32,12 @@ class OCRTextRegion:
     def __post_init__(self):
         xs = [p[0] for p in self.box]
         ys = [p[1] for p in self.box]
-        self.cx = (min(xs) + max(xs)) / 2.0
-        self.cy = (min(ys) + max(ys)) / 2.0
+        if xs and ys:
+            self.cx = (min(xs) + max(xs)) / 2.0
+            self.cy = (min(ys) + max(ys)) / 2.0
+        else:
+            self.cx = 0.0
+            self.cy = 0.0
 
 
 @dataclass

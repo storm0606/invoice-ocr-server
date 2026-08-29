@@ -64,21 +64,19 @@ class OCREngine:
         try:
             results = list(self._pipeline(image))
         except Exception as e:
-            logger.error(f"OCR recognition failed: {e}")
+            logger.error(f"OCR pipeline error: {e}")
             return []
 
         elapsed = time.time() - t0
         parsed = []
 
         if results:
-            # PaddleX OCRResult.json 返回 {"res": { ... 实际数据 ... }}
-            # 数据嵌套在 "res" 里面，不能直接在顶层取 rec_texts
             r = results[0]
             j = r.json if hasattr(r, "json") else {}
             if callable(j):
                 j = j()
 
-            # 解包 res 层
+            # PaddleX OCRResult.json 返回 {"res": { ... 实际数据 ... }}
             if isinstance(j, dict) and "res" in j:
                 inner = j["res"]
             elif isinstance(j, dict):
@@ -87,45 +85,73 @@ class OCREngine:
                 inner = {}
 
             rec_texts = inner.get("rec_texts", [])
-            rec_scores = inner.get("rec_scores", [])
-            # rec_boxes 是 (N, 4) 数组 [x1, y1, x2, y2]
-            rec_boxes = inner.get("rec_boxes", [])
 
             for i in range(len(rec_texts)):
                 text = str(rec_texts[i]) if rec_texts[i] else ""
-                confidence = float(rec_scores[i]) if i < len(rec_scores) else 0.0
-                box = self._normalize_rec_box(rec_boxes, i)
+                confidence = 0.0
+                scores = inner.get("rec_scores", [])
+                if i < len(scores):
+                    try:
+                        confidence = float(scores[i])
+                    except (ValueError, TypeError):
+                        pass
+                box = self._get_box(inner, i)
                 parsed.append({
                     "text": text,
                     "confidence": confidence,
                     "box": box,
                 })
 
-            # 按置信度降序排列
+            # 置信度降序排列
             parsed.sort(key=lambda x: x["confidence"], reverse=True)
-
-            # 打印所有文本区域（调试用）
-            logger.info(f"OCR 文本区域详情 ({len(parsed)}):")
 
         logger.info(f"OCR: {len(parsed)} text regions in {elapsed:.2f}s")
         return parsed
 
     @staticmethod
-    def _normalize_rec_box(rec_boxes, index: int) -> list:
+    def _get_box(inner: dict, index: int) -> list:
         """
-        rec_boxes 是 (N, 4) 数组 [x1, y1, x2, y2] 或 (N, 4, 2) 多边形。
-        统一输出为 [[x1,y1], [x2,y1], [x2,y2], [x1,y2]]。
+        从 inner dict 中提取第 index 个文本区域的边界框。
+
+        优先级：
+        1. dt_polys (4 点多边形列表)
+        2. rec_boxes (N, 4) ndarray [x1, y1, x2, y2]
+        3. rec_polys (4 点多边形列表)
+        4. 默认返回单位矩形
         """
-        if isinstance(rec_boxes, np.ndarray):
-            if rec_boxes.ndim == 2 and rec_boxes.shape[1] == 4:
-                x1, y1, x2, y2 = rec_boxes[index]
-                return [[int(x1), int(y1)], [int(x2), int(y1)],
-                        [int(x2), int(y2)], [int(x1), int(y2)]]
-        if isinstance(rec_boxes, (list, tuple)) and index < len(rec_boxes):
-            box = rec_boxes[index]
-            if isinstance(box, np.ndarray) and box.shape == (4, 2):
-                return [[int(box[p][0]), int(box[p][1])] for p in range(4)]
-        return []
+        # 1. dt_polys: 列表 of shape (4,2) numpy arrays
+        dt_polys = inner.get("dt_polys", [])
+        if isinstance(dt_polys, (list, tuple)) and index < len(dt_polys):
+            poly = dt_polys[index]
+            if hasattr(poly, 'shape') and poly.shape == (4, 2):
+                try:
+                    return [[int(poly[p][0]), int(poly[p][1])] for p in range(4)]
+                except (ValueError, TypeError, IndexError):
+                    pass
+
+        # 2. rec_boxes: ndarray shape (N,4) [x1,y1,x2,y2]
+        rboxes = inner.get("rec_boxes", [])
+        if isinstance(rboxes, np.ndarray) and rboxes.ndim == 2 and index < rboxes.shape[0]:
+            try:
+                row = rboxes[index]
+                if row.shape[0] >= 4:
+                    x1, y1, x2, y2 = int(row[0]), int(row[1]), int(row[2]), int(row[3])
+                    return [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
+            except (ValueError, TypeError, IndexError):
+                pass
+
+        # 3. rec_polys: 列表 of shape (4,2) numpy arrays
+        rpolys = inner.get("rec_polys", [])
+        if isinstance(rpolys, (list, tuple)) and index < len(rpolys):
+            poly = rpolys[index]
+            if hasattr(poly, 'shape') and poly.shape == (4, 2):
+                try:
+                    return [[int(poly[p][0]), int(poly[p][1])] for p in range(4)]
+                except (ValueError, TypeError, IndexError):
+                    pass
+
+        # 4. 默认返回 [0,0] 单位矩形（避免 OCRTextRegion 的 min([]) 崩溃）
+        return [[0, 0], [0, 0], [0, 0], [0, 0]]
 
     def warmup(self):
         logger.info("Warming up OCR engine...")
