@@ -1,9 +1,7 @@
-
 """
 OCR 引擎封装。
 
-使用 PaddleOCR 的 ONNX 模式运行在 ARM 服务器上，
-避免依赖 PaddlePaddle 框架（ARM Linux 不支持）。
+使用 PaddleOCR 2.x + PaddlePaddle 运行在 ARM 服务器上。
 """
 
 import logging
@@ -19,7 +17,7 @@ from config import (
     USE_ONNX,
     USE_ANGLE_CLS,
     LANG,
-    REC_SCORE_THRESH,
+    DROP_SCORE,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,7 +43,7 @@ class OCREngine:
                 "lang": LANG,
                 "use_onnx": USE_ONNX,
                 "show_log": False,
-                "rec_score_thresh": REC_SCORE_THRESH,
+                "drop_score": DROP_SCORE,
             }
 
             if DET_MODEL_DIR:
@@ -55,7 +53,7 @@ class OCREngine:
             if CLS_MODEL_DIR:
                 kwargs["cls_model_dir"] = CLS_MODEL_DIR
 
-            logger.info("Initializing PaddleOCR with ONNX backend...")
+            logger.info("Initializing PaddleOCR...")
             logger.info(f"  use_onnx={USE_ONNX}, lang={LANG}")
             logger.info(f"  det_model_dir={DET_MODEL_DIR}")
             logger.info(f"  rec_model_dir={REC_MODEL_DIR}")
