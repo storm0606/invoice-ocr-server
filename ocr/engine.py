@@ -115,21 +115,31 @@ class OCREngine:
 
         优先级：
         1. dt_polys (4 点多边形列表)
-        2. rec_boxes (N, 4) ndarray [x1, y1, x2, y2]
+        2. rec_boxes (N, 4) [x1, y1, x2, y2] 列表
         3. rec_polys (4 点多边形列表)
         4. 默认返回单位矩形
+
+        PaddleX v3 返回 Python list（不是 numpy ndarray）：
+          dt_polys[i] = [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
+          rec_boxes[i] = [x1, y1, x2, y2]
         """
-        # 1. dt_polys: 列表 of shape (4,2) numpy arrays
+        # 1. dt_polys: list of lists, [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
         dt_polys = inner.get("dt_polys", [])
         if isinstance(dt_polys, (list, tuple)) and index < len(dt_polys):
             poly = dt_polys[index]
+            # numpy ndarray: has .shape; Python list: check length
             if hasattr(poly, 'shape') and poly.shape == (4, 2):
                 try:
                     return [[int(poly[p][0]), int(poly[p][1])] for p in range(4)]
                 except (ValueError, TypeError, IndexError):
                     pass
+            elif isinstance(poly, (list, tuple)) and len(poly) == 4:
+                try:
+                    return [[int(poly[p][0]), int(poly[p][1])] for p in range(4)]
+                except (ValueError, TypeError, IndexError):
+                    pass
 
-        # 2. rec_boxes: ndarray shape (N,4) [x1,y1,x2,y2]
+        # 2. rec_boxes: list of [x1, y1, x2, y2] (ndarray or list)
         rboxes = inner.get("rec_boxes", [])
         if isinstance(rboxes, np.ndarray) and rboxes.ndim == 2 and index < rboxes.shape[0]:
             try:
@@ -139,8 +149,16 @@ class OCREngine:
                     return [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
             except (ValueError, TypeError, IndexError):
                 pass
+        elif isinstance(rboxes, (list, tuple)) and index < len(rboxes):
+            try:
+                row = rboxes[index]
+                if isinstance(row, (list, tuple)) and len(row) >= 4:
+                    x1, y1, x2, y2 = int(row[0]), int(row[1]), int(row[2]), int(row[3])
+                    return [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
+            except (ValueError, TypeError, IndexError):
+                pass
 
-        # 3. rec_polys: 列表 of shape (4,2) numpy arrays
+        # 3. rec_polys: list of lists (same format as dt_polys)
         rpolys = inner.get("rec_polys", [])
         if isinstance(rpolys, (list, tuple)) and index < len(rpolys):
             poly = rpolys[index]
@@ -149,8 +167,13 @@ class OCREngine:
                     return [[int(poly[p][0]), int(poly[p][1])] for p in range(4)]
                 except (ValueError, TypeError, IndexError):
                     pass
+            elif isinstance(poly, (list, tuple)) and len(poly) == 4:
+                try:
+                    return [[int(poly[p][0]), int(poly[p][1])] for p in range(4)]
+                except (ValueError, TypeError, IndexError):
+                    pass
 
-        # 4. 默认返回 [0,0] 单位矩形（避免 OCRTextRegion 的 min([]) 崩溃）
+        # 4. 默认返回单位矩形
         return [[0, 0], [0, 0], [0, 0], [0, 0]]
 
     def warmup(self):
