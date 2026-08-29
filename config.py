@@ -1,23 +1,27 @@
-"""OCR Server 配置 - PaddleOCR 2.x + PaddlePaddle"""
+"""OCR Server 配置 - PaddleOCR 3.x"""
 
 import os
 
 # 项目根目录
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 
-# 模型目录（PaddleOCR 首次运行会自动下载模型到此处）
+# 模型目录（PaddleOCR 首次运行会自动下载模型）
 MODELS_DIR = os.path.join(PROJECT_ROOT, "models")
 
 # PaddleOCR 会自动下载默认模型，不用手动指定
-DET_MODEL_DIR = None
-REC_MODEL_DIR = None
-CLS_MODEL_DIR = None          # 发票不需要方向分类
+# 如需使用本地 ONNX 模型，可设置:
+#   text_detection_model_dir = os.path.join(MODELS_DIR, "det")
+#   text_recognition_model_dir = os.path.join(MODELS_DIR, "rec_medium")
+TEXT_DETECTION_MODEL_DIR = None
+TEXT_RECOGNITION_MODEL_DIR = None
 
-# PaddleOCR 参数
-USE_ONNX = False               # ONNX 模式（ARM 上如果 onnxruntime 正常就能用）
-USE_ANGLE_CLS = False         # 发票不需要方向分类
-LANG = "ch"                   # 中文
-DROP_SCORE = 0.0              # 不过滤低分结果（保留更多文本供后处理）
+# PaddleOCR 3.x 参数
+LANG = "ch"                          # 中文
+OCR_VERSION = "PP-OCRv4"             # OCR 版本
+TEXT_REC_SCORE_THRESH = 0.0          # 不过滤低分结果
+USE_DOC_ORIENTATION_CLASSIFY = False  # 发票不需要方向分类
+USE_DOC_UNWARPING = False             # 发票不需要文档拉直
+USE_TEXTLINE_ORIENTATION = False      # 发票不需要文字行方向
 
 # 服务器配置
 HOST = "0.0.0.0"

@@ -1,30 +1,31 @@
 """
-OCR 引擎封装。
+OCR 引擎封装 - PaddleOCR 3.x + PaddleX
 
-使用 PaddleOCR 2.x + PaddlePaddle 运行在 ARM 服务器上。
+使用 PaddleOCR 3.x 的 ONNX 支持运行在 ARM 服务器上，
+通过 PaddleX 自动选择推理引擎。
 """
 
 import logging
 import time
-from pathlib import Path
 
 import numpy as np
 
 from config import (
-    DET_MODEL_DIR,
-    REC_MODEL_DIR,
-    CLS_MODEL_DIR,
-    USE_ONNX,
-    USE_ANGLE_CLS,
+    TEXT_DETECTION_MODEL_DIR,
+    TEXT_RECOGNITION_MODEL_DIR,
     LANG,
-    DROP_SCORE,
+    OCR_VERSION,
+    TEXT_REC_SCORE_THRESH,
+    USE_DOC_ORIENTATION_CLASSIFY,
+    USE_DOC_UNWARPING,
+    USE_TEXTLINE_ORIENTATION,
 )
 
 logger = logging.getLogger(__name__)
 
 
 class OCREngine:
-    """PaddleOCR 引擎的轻量封装"""
+    """PaddleOCR 3.x 引擎封装"""
 
     def __init__(self):
         self._ocr = None
@@ -38,25 +39,22 @@ class OCREngine:
         try:
             from paddleocr import PaddleOCR
 
+            logger.info("Initializing PaddleOCR 3.x...")
+            logger.info(f"  ocr_version={OCR_VERSION}, lang={LANG}")
+
             kwargs = {
-                "use_angle_cls": USE_ANGLE_CLS,
                 "lang": LANG,
-                "use_onnx": USE_ONNX,
-                "show_log": False,
-                "drop_score": DROP_SCORE,
+                "ocr_version": OCR_VERSION,
+                "use_doc_orientation_classify": USE_DOC_ORIENTATION_CLASSIFY,
+                "use_doc_unwarping": USE_DOC_UNWARPING,
+                "use_textline_orientation": USE_TEXTLINE_ORIENTATION,
+                "text_rec_score_thresh": TEXT_REC_SCORE_THRESH,
             }
 
-            if DET_MODEL_DIR:
-                kwargs["det_model_dir"] = DET_MODEL_DIR
-            if REC_MODEL_DIR:
-                kwargs["rec_model_dir"] = REC_MODEL_DIR
-            if CLS_MODEL_DIR:
-                kwargs["cls_model_dir"] = CLS_MODEL_DIR
-
-            logger.info("Initializing PaddleOCR...")
-            logger.info(f"  use_onnx={USE_ONNX}, lang={LANG}")
-            logger.info(f"  det_model_dir={DET_MODEL_DIR}")
-            logger.info(f"  rec_model_dir={REC_MODEL_DIR}")
+            if TEXT_DETECTION_MODEL_DIR:
+                kwargs["text_detection_model_dir"] = TEXT_DETECTION_MODEL_DIR
+            if TEXT_RECOGNITION_MODEL_DIR:
+                kwargs["text_recognition_model_dir"] = TEXT_RECOGNITION_MODEL_DIR
 
             t0 = time.time()
             self._ocr = PaddleOCR(**kwargs)
@@ -65,7 +63,6 @@ class OCREngine:
 
         except ImportError as e:
             logger.error(f"Failed to import PaddleOCR: {e}")
-            logger.error("Run: pip install paddleocr")
             raise
         except Exception as e:
             logger.error(f"Failed to initialize PaddleOCR: {e}")
@@ -89,7 +86,16 @@ class OCREngine:
 
         t0 = time.time()
         try:
-            results = self._ocr.ocr(image, cls=False)
+            # PaddleOCR 3.x 支持 __call__ 或 predict 方法
+            # 尝试多种调用方式兼容
+            if hasattr(self._ocr, "ocr") and callable(self._ocr.ocr):
+                results = self._ocr.ocr(image)
+            elif hasattr(self._ocr, "predict") and callable(self._ocr.predict):
+                results = self._ocr.predict(image)
+            elif callable(self._ocr):
+                results = self._ocr(image)
+            else:
+                raise RuntimeError("No callable method found on PaddleOCR")
         except Exception as e:
             logger.error(f"OCR recognition failed: {e}")
             return []
@@ -97,17 +103,54 @@ class OCREngine:
         elapsed = time.time() - t0
         parsed = []
 
-        if results and results[0]:
-            for line in results[0]:
-                box, (text, confidence) = line
-                parsed.append({
-                    "text": text,
-                    "confidence": confidence,
-                    "box": [[int(p[0]), int(p[1])] for p in box],
-                })
+        # PaddleOCR 3.x 返回结构可能是 PaddleX Result 对象
+        # 尝试兼容多种返回格式
+        try:
+            raw_results = self._parse_paddlex_result(results)
+        except Exception:
+            raw_results = results if results else []
+
+        if isinstance(raw_results, list):
+            for item in raw_results:
+                if isinstance(item, dict):
+                    text = item.get("text", "")
+                    confidence = item.get("confidence", 0.0)
+                    box = item.get("box", [])
+                    parsed.append({
+                        "text": str(text),
+                        "confidence": float(confidence),
+                        "box": box,
+                    })
+                elif isinstance(item, (list, tuple)) and len(item) == 2:
+                    box, (text, confidence) = item
+                    parsed.append({
+                        "text": str(text),
+                        "confidence": float(confidence),
+                        "box": [[int(p[0]), int(p[1])] for p in box],
+                    })
 
         logger.info(f"OCR: {len(parsed)} text regions in {elapsed:.2f}s")
         return parsed
+
+    def _parse_paddlex_result(self, result) -> list:
+        """尝试解析 PaddleX 结果对象为统一格式"""
+        if result is None:
+            return []
+
+        # PaddleX Result 对象可能包含 .ocr() 或 .json() 方法
+        if hasattr(result, "json"):
+            return result.json().get("boxes", result.json())
+
+        if hasattr(result, "ocr"):
+            return result.ocr()
+
+        if isinstance(result, dict):
+            return result.get("boxes", result.get("results", [result]))
+
+        if isinstance(result, list):
+            return result
+
+        return []
 
     def warmup(self):
         """预热：用空图跑一次推理，加载模型到内存"""
