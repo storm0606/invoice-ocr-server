@@ -1,12 +1,12 @@
 """
-OCR 引擎封装 - PaddleOCR 3.x + PaddleX
+OCR 引擎封装 - PaddleOCR 3.x + PaddlePaddle
 
-使用 PaddleOCR 3.x 的 ONNX 支持运行在 ARM 服务器上，
-通过 PaddleX 自动选择推理引擎。
+使用 PaddleOCR 3.x 运行在 ARM 服务器上。
 """
 
 import logging
 import time
+import os
 
 import numpy as np
 
@@ -19,7 +19,14 @@ from config import (
     USE_DOC_ORIENTATION_CLASSIFY,
     USE_DOC_UNWARPING,
     USE_TEXTLINE_ORIENTATION,
+    TEXT_DET_LIMIT_SIDE_LEN,
+    TEXT_DET_LIMIT_TYPE,
 )
+
+# ARM 上限制线程数，避免 segfault
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +56,8 @@ class OCREngine:
                 "use_doc_unwarping": USE_DOC_UNWARPING,
                 "use_textline_orientation": USE_TEXTLINE_ORIENTATION,
                 "text_rec_score_thresh": TEXT_REC_SCORE_THRESH,
+                "text_det_limit_side_len": TEXT_DET_LIMIT_SIDE_LEN,
+                "text_det_limit_type": TEXT_DET_LIMIT_TYPE,
             }
 
             if TEXT_DETECTION_MODEL_DIR:
@@ -86,8 +95,7 @@ class OCREngine:
 
         t0 = time.time()
         try:
-            # PaddleOCR 3.x 支持 __call__ 或 predict 方法
-            # 尝试多种调用方式兼容
+            # PaddleOCR 3.x 兼容多种调用方式
             if hasattr(self._ocr, "ocr") and callable(self._ocr.ocr):
                 results = self._ocr.ocr(image)
             elif hasattr(self._ocr, "predict") and callable(self._ocr.predict):
@@ -103,10 +111,9 @@ class OCREngine:
         elapsed = time.time() - t0
         parsed = []
 
-        # PaddleOCR 3.x 返回结构可能是 PaddleX Result 对象
-        # 尝试兼容多种返回格式
+        # 解析 PaddleOCR 3.x 返回结果
         try:
-            raw_results = self._parse_paddlex_result(results)
+            raw_results = self._parse_result(results)
         except Exception:
             raw_results = results if results else []
 
@@ -132,12 +139,11 @@ class OCREngine:
         logger.info(f"OCR: {len(parsed)} text regions in {elapsed:.2f}s")
         return parsed
 
-    def _parse_paddlex_result(self, result) -> list:
+    def _parse_result(self, result) -> list:
         """尝试解析 PaddleX 结果对象为统一格式"""
         if result is None:
             return []
 
-        # PaddleX Result 对象可能包含 .ocr() 或 .json() 方法
         if hasattr(result, "json"):
             return result.json().get("boxes", result.json())
 

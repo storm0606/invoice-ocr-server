@@ -6,8 +6,6 @@
 
 运行:
     python server.py
-    # 或
-    uvicorn server:app --host 0.0.0.0 --port 8000
 """
 
 import io
@@ -49,8 +47,10 @@ app.add_middleware(
 # ---------- 全局 OCR 引擎 ----------
 ocr_engine = OCREngine()
 
+# 服务端图片最大边长（像素），超过此值等比缩放
+MAX_IMAGE_DIM = 2000
 
-# ---------- 启动事件 ----------
+
 @app.on_event("startup")
 async def startup():
     """服务启动时初始化 OCR 引擎并预热"""
@@ -58,11 +58,22 @@ async def startup():
     try:
         ocr_engine.initialize()
         logger.info("OCR 引擎初始化完成")
-        # 预热（异步执行）
-        # ocr_engine.warmup()
     except Exception as e:
         logger.error(f"OCR 引擎初始化失败: {e}")
         raise
+
+
+# ---------- 工具函数 ----------
+
+def resize_if_needed(pil_image: Image.Image, max_dim: int = MAX_IMAGE_DIM) -> Image.Image:
+    """如果图片边长超过 max_dim，等比缩放（保持宽高比）"""
+    w, h = pil_image.size
+    if max(w, h) <= max_dim:
+        return pil_image
+    scale = max_dim / max(w, h)
+    new_w, new_h = int(w * scale), int(h * scale)
+    logger.info(f"图片缩放: {w}x{h} -> {new_w}x{new_h}")
+    return pil_image.resize((new_w, new_h), Image.LANCZOS)
 
 
 # ---------- API ----------
@@ -95,35 +106,28 @@ async def recognize(file: UploadFile = File(...)):
     上传发票照片进行 OCR 识别。
 
     请求: multipart/form-data, file 字段为图片文件
-    支持格式: jpg, jpeg, png, heic
-
-    返回:
-        success: bool
-        invoices: list[dict] 每张发票的信息
-        elapsed_ms: int 识别耗时
-        error: str (失败时)
+    返回: success, invoices, elapsed_ms, regions_found
     """
     t_start = time.time()
 
-    # 校验文件
     if not file.filename:
         raise HTTPException(400, "No file provided")
 
-    # 读取文件
     contents = await file.read()
     if len(contents) > MAX_IMAGE_SIZE_MB * 1024 * 1024:
         raise HTTPException(400, f"File too large (max {MAX_IMAGE_SIZE_MB}MB)")
 
     logger.info(f"收到图片: {file.filename} ({len(contents) / 1024:.0f} KB)")
 
-    # 解码图片
+    # 解码并缩放图片
     try:
         pil_image = Image.open(io.BytesIO(contents))
-        # 转 RGB（PIL 可能加载为 RGBA）
         if pil_image.mode != "RGB":
             pil_image = pil_image.convert("RGB")
-        # 转 numpy (H, W, 3), BGR 格式给 PaddleOCR
-        img_array = np.array(pil_image)[:, :, ::-1]  # RGB → BGR
+        # 服务端预缩放，防止 ARM 上 OOM
+        pil_image = resize_if_needed(pil_image)
+        # RGB -> BGR for PaddleOCR
+        img_array = np.array(pil_image)[:, :, ::-1]
     except Exception as e:
         logger.error(f"图片解码失败: {e}")
         raise HTTPException(400, f"Invalid image: {e}")

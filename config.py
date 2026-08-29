@@ -23,6 +23,10 @@ USE_DOC_ORIENTATION_CLASSIFY = False  # 发票不需要方向分类
 USE_DOC_UNWARPING = False             # 发票不需要文档拉直
 USE_TEXTLINE_ORIENTATION = False      # 发票不需要文字行方向
 
+# 检测参数 - 限制最大边长度，避免 ARM 上 OOM/segfault
+TEXT_DET_LIMIT_SIDE_LEN = 2000        # 最大图片边长（像素），手机照片过大时自动缩放
+TEXT_DET_LIMIT_TYPE = "min"           # "min"=按最短边缩放, "max"=按最长边缩放
+
 # 服务器配置
 HOST = "0.0.0.0"
 PORT = 8000
