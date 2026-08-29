@@ -14,7 +14,7 @@ REC_MODEL_DIR = None
 CLS_MODEL_DIR = None          # 发票不需要方向分类
 
 # PaddleOCR 参数
-USE_ONNX = True               # ONNX 模式（ARM 上如果 onnxruntime 正常就能用）
+USE_ONNX = False               # ONNX 模式（ARM 上如果 onnxruntime 正常就能用）
 USE_ANGLE_CLS = False         # 发票不需要方向分类
 LANG = "ch"                   # 中文
 DROP_SCORE = 0.0              # 不过滤低分结果（保留更多文本供后处理）
