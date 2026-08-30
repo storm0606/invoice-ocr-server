@@ -4,8 +4,16 @@
 提供 REST API，接收手机上传的发票照片，
 使用 PaddleX + ONNX Runtime 进行识别，返回结构化发票信息。
 
+性能优化版本（ARM 服务器）:
+- 图片缩放至 960px（大幅减少检测时间）
+- ONNX Runtime 多线程配置
+- 低置信度结果过滤
+- 角度分类关闭
+
 运行:
     python server.py
+或
+    uvicorn server:app --host 0.0.0.0 --port 8000
 """
 
 import io
@@ -17,7 +25,7 @@ from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 
-from config import HOST, PORT, MAX_IMAGE_SIZE_MB
+from config import HOST, PORT, MAX_IMAGE_SIZE_MB, MAX_IMAGE_DIM
 from ocr.engine import OCREngine
 from ocr.invoice_parser import parse_invoices
 from ocr.invoice_codes import INVOICE_CODE_MAP
@@ -31,7 +39,7 @@ logger = logging.getLogger("ocr-server")
 app = FastAPI(
     title="发票 OCR 识别服务",
     description="接收手机上传的发票照片，使用 PaddleOCR 识别并返回结构化发票信息",
-    version="2.0.0",
+    version="2.1.0",
 )
 
 app.add_middleware(
@@ -43,23 +51,21 @@ app.add_middleware(
 
 ocr_engine = OCREngine()
 
-# ARM 服务器性能有限，限制图片尺寸以加快推理
-MAX_IMAGE_DIM = 1200
-
 
 def resize_if_needed(pil_image: Image.Image, max_dim: int = MAX_IMAGE_DIM) -> Image.Image:
+    """将图片缩放，使最长边不超过 max_dim。"""
     w, h = pil_image.size
     if max(w, h) <= max_dim:
         return pil_image
     scale = max_dim / max(w, h)
     new_w, new_h = int(w * scale), int(h * scale)
-    logger.info(f"图片缩放: {w}x{h} -> {new_w}x{new_h}")
+    logger.info(f"缩放图片: {w}x{h} -> {new_w}x{new_h} (scale={scale:.2f})")
     return pil_image.resize((new_w, new_h), Image.LANCZOS)
 
 
 @app.on_event("startup")
 async def startup():
-    logger.info("=== 发票 OCR 识别服务启动 ===")
+    logger.info("=== 发票 OCR 识别服务启动 (v2.1.0) ===")
     try:
         ocr_engine.initialize()
         logger.info("OCR 引擎初始化完成")
@@ -106,12 +112,12 @@ async def recognize(file: UploadFile = File(...)):
         if pil_image.mode != "RGB":
             pil_image = pil_image.convert("RGB")
         pil_image = resize_if_needed(pil_image)
-        # RGB -> BGR for PaddleX
-        img_array = np.array(pil_image)[:, :, ::-1]
+        img_array = np.array(pil_image)[:, :, ::-1]  # RGB -> BGR
     except Exception as e:
         logger.error(f"图片解码失败: {e}")
         raise HTTPException(400, f"Invalid image: {e}")
 
+    t_ocr_start = time.time()
     try:
         ocr_results = ocr_engine.recognize(img_array)
     except Exception as e:
@@ -122,6 +128,7 @@ async def recognize(file: UploadFile = File(...)):
             "invoices": [],
             "elapsed_ms": int((time.time() - t_start) * 1000),
         }
+    t_ocr_end = time.time()
 
     if not ocr_results:
         logger.warning("OCR 未识别到任何文本")
@@ -132,14 +139,21 @@ async def recognize(file: UploadFile = File(...)):
             "message": "No text recognized in image",
         }
 
+    t_parse_start = time.time()
     try:
         invoices = parse_invoices(ocr_results)
     except Exception as e:
         logger.error(f"发票解析失败: {e}")
         invoices = []
+    t_parse_end = time.time()
 
     elapsed_ms = int((time.time() - t_start) * 1000)
-    logger.info(f"总耗时: {elapsed_ms}ms, 识别 {len(invoices)} 张发票")
+    ocr_ms = int((t_ocr_end - t_ocr_start) * 1000)
+    parse_ms = int((t_parse_end - t_parse_start) * 1000)
+    logger.info(
+        f"耗时: OCR={ocr_ms}ms, 解析={parse_ms}ms, 总={elapsed_ms}ms | "
+        f"识别 {len(invoices)} 张发票 / {len(ocr_results)} 文本区域"
+    )
 
     return {
         "success": True,

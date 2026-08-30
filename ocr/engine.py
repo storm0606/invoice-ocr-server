@@ -3,6 +3,13 @@ OCR 引擎封装 - PaddleX ONNX Runtime
 
 使用 PaddleX 3.x + onnxruntime 运行在 ARM 服务器上。
 避免了 PaddlePaddle 原生推理在 ARM 上的 segfault 问题。
+
+性能优化：
+- 配置 ONNX Runtime Session 级别的线程数
+- 通过文本框置信度阈值减少识别负载
+- 批处理识别提升吞吐量
+- 关闭角度分类（发票照片无需旋转矫正）
+- 限制检测输入尺寸以加速
 """
 
 import logging
@@ -15,12 +22,14 @@ from config import (
     ENGINE,
     DEVICE,
     TEXT_REC_SCORE_THRESH,
+    DET_DB_THRESH,
+    DET_DB_BOX_THRESH,
+    REC_BATCH_NUM,
+    ONNX_INTRA_THREADS,
+    ONNX_INTER_THREADS,
+    DET_LIMIT_SIDE_LEN,
 )
 
-# ARM 上限制线程数
-os.environ.setdefault("OMP_NUM_THREADS", "4")
-os.environ.setdefault("MKL_NUM_THREADS", "4")
-os.environ.setdefault("OPENBLAS_NUM_THREADS", "4")
 os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
 
 logger = logging.getLogger(__name__)
@@ -42,13 +51,33 @@ class OCREngine:
 
             logger.info("Initializing PaddleX OCR pipeline...")
             logger.info(f"  engine={ENGINE}, device={DEVICE}")
+            logger.info(f"  threads: intra={ONNX_INTRA_THREADS}, inter={ONNX_INTER_THREADS}")
+            logger.info(f"  det_thresh={DET_DB_THRESH}, rec_thresh={TEXT_REC_SCORE_THRESH}")
+            logger.info(f"  det_limit_side_len={DET_LIMIT_SIDE_LEN}, rec_batch_num={REC_BATCH_NUM}")
+            logger.info(f"  use_angle_cls=False")
 
             t0 = time.time()
+
+            # 设置 ONNX Runtime 线程环境变量
+            os.environ["ORT_INTRA_OP_NUM_THREADS"] = str(ONNX_INTRA_THREADS)
+            os.environ["ORT_INTER_OP_NUM_THREADS"] = str(ONNX_INTER_THREADS)
+
             self._pipeline = create_pipeline(
                 pipeline="OCR",
                 engine=ENGINE,
                 device=DEVICE,
+                # 检测参数 - 控制检测精度和速度
+                det_db_thresh=DET_DB_THRESH,
+                det_db_box_thresh=DET_DB_BOX_THRESH,
+                # 限制检测输入尺寸（ARM 服务器降低此值可大幅提速）
+                det_limit_side_len=DET_LIMIT_SIDE_LEN,
+                det_limit_type="min",
+                # 识别批处理（一次性识别多行文本）
+                rec_batch_num=REC_BATCH_NUM,
+                # 关闭角度分类（提高速度，发票照片角度通常已矫正）
+                use_angle_cls=False,
             )
+
             logger.info(f"PaddleX pipeline initialized in {time.time() - t0:.1f}s")
             self._initialized = True
 
@@ -76,7 +105,7 @@ class OCREngine:
             if callable(j):
                 j = j()
 
-            # PaddleX OCRResult.json 返回 {"res": { ... 实际数据 ... }}
+            # PaddleX OCRResult.json returns {"res": { ... actual data ... }}
             if isinstance(j, dict) and "res" in j:
                 inner = j["res"]
             elif isinstance(j, dict):
@@ -85,16 +114,21 @@ class OCREngine:
                 inner = {}
 
             rec_texts = inner.get("rec_texts", [])
+            scores = inner.get("rec_scores", [])
 
             for i in range(len(rec_texts)):
                 text = str(rec_texts[i]) if rec_texts[i] else ""
                 confidence = 0.0
-                scores = inner.get("rec_scores", [])
                 if i < len(scores):
                     try:
                         confidence = float(scores[i])
                     except (ValueError, TypeError):
                         pass
+
+                # 过滤低置信度结果
+                if confidence < TEXT_REC_SCORE_THRESH:
+                    continue
+
                 box = self._get_box(inner, i)
                 parsed.append({
                     "text": text,
@@ -105,7 +139,8 @@ class OCREngine:
             # 置信度降序排列
             parsed.sort(key=lambda x: x["confidence"], reverse=True)
 
-        logger.info(f"OCR: {len(parsed)} text regions in {elapsed:.2f}s")
+        total_regions = len(results[0].json.get("res", {}).get("rec_texts", [])) if results else 0
+        logger.info(f"OCR: {len(parsed)}/{total_regions} regions in {elapsed:.2f}s")
         return parsed
 
     @staticmethod
@@ -118,16 +153,11 @@ class OCREngine:
         2. rec_boxes (N, 4) [x1, y1, x2, y2] 列表
         3. rec_polys (4 点多边形列表)
         4. 默认返回单位矩形
-
-        PaddleX v3 返回 Python list（不是 numpy ndarray）：
-          dt_polys[i] = [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
-          rec_boxes[i] = [x1, y1, x2, y2]
         """
         # 1. dt_polys: list of lists, [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
         dt_polys = inner.get("dt_polys", [])
         if isinstance(dt_polys, (list, tuple)) and index < len(dt_polys):
             poly = dt_polys[index]
-            # numpy ndarray: has .shape; Python list: check length
             if hasattr(poly, 'shape') and poly.shape == (4, 2):
                 try:
                     return [[int(poly[p][0]), int(poly[p][1])] for p in range(4)]
@@ -173,7 +203,6 @@ class OCREngine:
                 except (ValueError, TypeError, IndexError):
                     pass
 
-        # 4. 默认返回单位矩形
         return [[0, 0], [0, 0], [0, 0], [0, 0]]
 
     def warmup(self):

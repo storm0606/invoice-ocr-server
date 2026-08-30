@@ -1,20 +1,19 @@
-# ==================== OCR Server (ARM Server) ====================
-# PaddleOCR 2.x + PaddlePaddle (ARM64 native mode)
-# PaddlePaddle for ARM Linux aarch64 is available on PyPI
+# ==================== OCR Server (ARM Server - PaddleX ONNX) ====================
+# 使用 PaddleX 3.x + ONNX Runtime 运行 PP-OCRv6 模型
+# ARM64 (aarch64) 服务器专用，无需 GPU
 
 # Web 服务
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 python-multipart>=0.0.6
 
-# PaddleOCR 2.x（有 use_onnx 参数）
-# ONNX 模式需额外: pip install paddle2onnx onnxruntime
-paddleocr>=2.7.0,<3.0.0
+# PaddleX 3.x + ONNX Runtime (ARM 稳定)
+# PaddleX 会自动安装 onnxruntime 等依赖
+paddlex>=3.0.0
 
-# PaddlePaddle for ARM Linux aarch64
-paddlepaddle
+# 如果 paddlex 没有自动安装 onnxruntime，手动安装:
+# pip install onnxruntime
 
 # 图片处理
 Pillow>=10.0.0
-opencv-python-headless>=4.8.0
 numpy>=1.24.0
